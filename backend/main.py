@@ -2,6 +2,7 @@ import logging
 from fastapi import FastAPI
 from routes.chat import router as chat_router
 from database import engine, Base
+from fastapi.middleware.cors import CORSMiddleware
 
 logging.basicConfig(
     level=logging.INFO,
@@ -19,3 +20,11 @@ app.include_router(chat_router)
 @app.get("/")
 def home():
     return {"message": "Server running"}
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
