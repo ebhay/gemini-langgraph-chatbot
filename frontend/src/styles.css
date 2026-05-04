@@ -11,11 +11,12 @@ body {
   flex-direction: column;
   align-items: center;
   justify-content: center;
+  overflow: hidden; /* Prevent the whole page from scrolling */
 }
 
 .container.chat-started {
   justify-content: flex-start;
-  padding: 20px 0;
+  padding: 40px 0;
   height: 100vh;
   box-sizing: border-box;
 }
@@ -97,6 +98,29 @@ body {
   padding: 8px 12px;
   border-radius: 50%;
   cursor: pointer;
+  transition: background 0.2s;
+}
+
+.input-wrapper button:disabled {
+  background: #d1d5db;
+  cursor: not-allowed;
+}
+
+.input-wrapper input:disabled {
+  background: #f9fafb;
+  color: #9ca3af;
+  cursor: not-allowed;
+}
+
+.message.thinking {
+  opacity: 0.6;
+  font-style: italic;
+  animation: pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 1; }
 }
 
 .menu-btn {
@@ -210,4 +234,76 @@ div:hover .menu-btn {
 
 .btn-delete:hover {
   background: #dc2626;
+}
+
+.profile-view .chat-box {
+  justify-content: flex-start !important;
+  text-align: left;
+}
+
+.profile-details {
+  margin-top: 20px;
+  width: 100%;
+}
+
+.profile-item {
+  display: flex;
+  justify-content: space-between;
+  padding: 12px;
+  border-bottom: 1px solid #e5e7eb;
+  background: white;
+  border-radius: 8px;
+  margin-bottom: 10px;
+}
+
+.profile-key {
+  font-weight: 600;
+  color: #4b5563;
+  text-transform: capitalize;
+}
+
+.profile-value {
+  color: #111827;
+}
+
+/* --- Profile Edit Styles --- */
+
+.profile-edit-input {
+  flex: 1;
+  padding: 6px 10px;
+  border: 1px solid #fb923c;
+  border-radius: 6px;
+  font-size: 14px;
+  outline: none;
+}
+
+.btn-save {
+  background: #fb923c;
+  color: white;
+  border: none;
+  padding: 6px 14px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  transition: background 0.2s;
+}
+
+.btn-save:hover {
+  background: #ea580c;
+}
+
+.btn-edit-icon {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font-size: 14px;
+  opacity: 0;
+  transition: opacity 0.2s;
+  padding: 2px 4px;
+  border-radius: 4px;
+}
+
+.profile-item:hover .btn-edit-icon {
+  opacity: 1;
 }

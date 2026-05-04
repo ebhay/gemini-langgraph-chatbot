@@ -1,4 +1,5 @@
 import logging
+import json
 from typing import TypedDict
 from langgraph.graph import StateGraph, END
 
@@ -6,93 +7,137 @@ from services.gemini_service import get_response
 from services.tool_service import find_hospitals
 from services.scheduler_service import schedule_task
 from services.memory_service import get_history, save_conversation
+from services.profile_service import get_user_profile, update_user_profile
 
 logger = logging.getLogger(__name__)
-
 
 class ChatState(TypedDict, total=False):
     input: str
     output: str
+    session_id: str
 
+# -----------------------------
+# TOOL NODE
+# -----------------------------
+def tool_node(state: ChatState):
+    user_input = state.get("input", "")
+    session_id = state.get("session_id", "default")
 
-def chatbot_node(state: ChatState):
+    try:
+        location = "your area"
+        if "in" in user_input.lower():
+            location = user_input.lower().split("in")[-1].strip().title()
+
+        hospitals = find_hospitals(location)
+        response = f"Here are some hospitals in {location}:\n" + "\n".join([f"- {h}" for h in hospitals])
+
+        save_conversation(user_input, response, session_id=session_id)
+        return {"output": response}
+    except Exception as e:
+        logger.error(f"[TOOL] Hospital lookup failed: {e}")
+        return {"output": "Sorry, I couldn't fetch hospital data."}
+
+# -----------------------------
+# SCHEDULER NODE
+# -----------------------------
+def scheduler_node(state: ChatState):
+    user_input = state.get("input", "")
+    session_id = state.get("session_id", "default")
+
+    try:
+        reminder_text = "Reminder: Your task is complete!"
+        if "remind me to" in user_input.lower():
+            reminder_text = "Reminder: " + user_input.lower().split("remind me to")[-1].strip()
+        elif "remind me about" in user_input.lower():
+            reminder_text = "Reminder: " + user_input.lower().split("remind me about")[-1].strip()
+
+        schedule_task(reminder_text, delay=10)
+        response = f"I've scheduled that for you. You'll get a notification in 10 seconds: \"{reminder_text}\""
+        save_conversation(user_input, response, session_id=session_id)
+        return {"output": response}
+    except Exception as e:
+        logger.error(f"[SCHEDULER] Task failed: {e}")
+        return {"output": "Failed to set reminder."}
+
+# -----------------------------
+# CHAT NODE (Gemini + Memory + Profile)
+# -----------------------------
+def chat_node(state: ChatState):
     user_input = state.get("input", "").strip()
+    session_id = state.get("session_id", "default")
 
     if not user_input:
-        logger.warning("[NODE] Received empty user input")
         return {"output": "Please enter a message."}
 
-    if "hospital" in user_input.lower():
-        try:
-            if "in" in user_input.lower():
-                location = user_input.lower().split("in")[-1].strip().title()
-            else:
-                location = "your area"
+    # 1. Fetch Context
+    history = get_history(session_id=session_id, limit=5)
+    profile = get_user_profile()
+    profile_str = "\n".join([f"- {k}: {v}" for k, v in profile.items()]) if profile else "No details known yet."
 
-            hospitals = find_hospitals(location)
+    # 2. Build Prompt
+    prompt = f"""You are a highly capable AI assistant with long-term memory.
+    
+--- USER CONTEXT ---
+LONG-TERM FACTS KNOWN ABOUT USER:
+{profile_str}
 
-            response = f"Here are some hospitals in {location}:\n"
-            for h in hospitals:
-                response += f"- {h}\n"
-
-            try:
-                save_conversation(user_input, response)
-            except Exception as e:
-                logger.error(f"[NODE] save_conversation() failed (tool): {e}")
-
-            return {"output": response}
-
-        except Exception as e:
-            logger.error(f"[TOOL] Hospital lookup failed: {e}")
-            return {"output": "Sorry, I couldn't fetch hospital data."}
-
-    if "remind me" in user_input.lower():
-        try:
-            schedule_task("Reminder completed!", delay=10)
-
-            response = "Reminder set! You will be notified soon."
-
-            try:
-                save_conversation(user_input, response)
-            except Exception as e:
-                logger.error(f"[NODE] save_conversation() failed (scheduler): {e}")
-
-            return {"output": response}
-
-        except Exception as e:
-            logger.error(f"[SCHEDULER] Task scheduling failed: {e}")
-            return {"output": "Failed to set reminder."}
-
-    try:
-        history = get_history(limit=5)
-    except Exception as e:
-        logger.error(f"[NODE] get_history() failed: {e}")
-        history = ""
-
-    prompt = f"""You are a helpful AI assistant. Remember details the user shares about themselves.
-
-Previous conversation:
+SHORT-TERM CONVERSATION HISTORY:
 {history}
-User: {user_input}
+---
+
+USER INPUT: {user_input}
+
+SYSTEM INSTRUCTIONS:
+1. Use the facts known about the user to personalize your response.
+2. If the user mentions a new personal fact (name, age, city, hobby, preference), you MUST acknowledge it naturally in your reply.
+3. CRITICAL: If you learn a new fact, you MUST append a machine-readable block at the VERY END of your response in this EXACT format:
+   [EXTRACT: {{"key": "value"}}]
+   Example: If they say "I am 20", add [EXTRACT: {{"age": "20"}}] at the end.
+4. Keep your conversational response friendly and concise.
+
 Assistant:"""
 
-    logger.debug(f"[NODE] Prompt ready (len={len(prompt)} chars)")
-
+    # 3. Get Response
     response = get_response(prompt)
 
-    try:
-        save_conversation(user_input, response)
-    except Exception as e:
-        logger.error(f"[NODE] save_conversation() failed: {e}")
+    # 4. Extract and Save Profile Facts (Long-term Memory)
+    clean_response = response
+    if "[EXTRACT:" in response:
+        try:
+            parts = response.split("[EXTRACT:")
+            clean_response = parts[0].strip()
+            fact_json = parts[1].split("]")[0].strip()
+            fact_data = json.loads(fact_json)
+            for k, v in fact_data.items():
+                update_user_profile(k, str(v))
+                logger.info(f"[PROFILE] Extracted fact: {k}={v}")
+        except Exception as e:
+            logger.error(f"[PROFILE] Extraction failed: {e}")
 
-    return {"output": response}
+    # 5. Save and Return
+    save_conversation(user_input, clean_response, session_id=session_id)
+    return {"output": clean_response}
 
+# -----------------------------
+# GRAPH BUILD
+# -----------------------------
+def router_node(state: ChatState):
+    return state
+
+def route_decision(state: ChatState) -> str:
+    user_input = state.get("input", "").lower()
+    if "hospital" in user_input: return "tool"
+    if "remind me" in user_input: return "scheduler"
+    return "chat"
 
 graph = StateGraph(ChatState)
-
-graph.add_node("chatbot", chatbot_node)
-
-graph.set_entry_point("chatbot")
-graph.add_edge("chatbot", END)
-
+graph.add_node("router", router_node)
+graph.add_node("chat", chat_node)
+graph.add_node("tool", tool_node)
+graph.add_node("scheduler", scheduler_node)
+graph.set_entry_point("router")
+graph.add_conditional_edges("router", route_decision, {"chat": "chat", "tool": "tool", "scheduler": "scheduler"})
+graph.add_edge("chat", END)
+graph.add_edge("tool", END)
+graph.add_edge("scheduler", END)
 app_graph = graph.compile()

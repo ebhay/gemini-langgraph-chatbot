@@ -1,9 +1,10 @@
 import { useState, useEffect, useRef } from "react";
 
-function Sidebar({ chats, currentChatId, setCurrentChatId, newChat, deleteChat }) {
+function Sidebar({ chats, currentChatId, setCurrentChatId, newChat, deleteChat, toggleProfile }) {
   const [activeMenuId, setActiveMenuId] = useState(null);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [chatToDelete, setChatToDelete] = useState(null);
+  const [notifications, setNotifications] = useState([]);
   const menuRef = useRef(null);
 
   // Close menu when clicking outside
@@ -26,9 +27,38 @@ function Sidebar({ chats, currentChatId, setCurrentChatId, newChat, deleteChat }
   const confirmDelete = () => {
     if (chatToDelete) {
       deleteChat(chatToDelete);
+      setActiveMenuId(null); // Ensure menu closes
     }
     setShowDeleteModal(false);
     setChatToDelete(null);
+  };
+
+  // Notification Polling
+  useEffect(() => {
+    const fetchNotifications = async () => {
+      try {
+        const res = await fetch(`${process.env.REACT_APP_API_URL}/notifications`);
+        if (res.ok) {
+          const data = await res.json();
+          setNotifications(data);
+        }
+      } catch (err) {
+        console.error("Failed to fetch notifications:", err);
+      }
+    };
+
+    fetchNotifications();
+    const interval = setInterval(fetchNotifications, 10000); // every 10s
+    return () => clearInterval(interval);
+  }, []);
+
+  const dismissNotification = async (id) => {
+    try {
+      await fetch(`${process.env.REACT_APP_API_URL}/notifications/read/${id}`, { method: "POST" });
+      setNotifications(notifications.filter(n => n.id !== id));
+    } catch (err) {
+      console.error("Failed to dismiss notification:", err);
+    }
   };
 
   return (
@@ -43,9 +73,42 @@ function Sidebar({ chats, currentChatId, setCurrentChatId, newChat, deleteChat }
         height: "100vh"
       }}>
 
+        {notifications.length > 0 && (
+          <div style={{ marginBottom: "20px" }}>
+            <div style={{ fontSize: "12px", fontWeight: "bold", color: "#fb923c", marginBottom: "8px" }}>
+              NOTIFICATIONS ({notifications.length})
+            </div>
+            {notifications.map(n => (
+              <div key={n.id} style={{ 
+                background: "#fffbeb", 
+                border: "1px solid #fef3c7", 
+                padding: "8px", 
+                borderRadius: "6px",
+                fontSize: "12px",
+                marginBottom: "6px",
+                position: "relative"
+              }}>
+                {n.message}
+                <button 
+                  onClick={() => dismissNotification(n.id)}
+                  style={{
+                    position: "absolute",
+                    right: "4px",
+                    top: "4px",
+                    border: "none",
+                    background: "transparent",
+                    cursor: "pointer",
+                    fontSize: "10px"
+                  }}
+                >✕</button>
+              </div>
+            ))}
+          </div>
+        )}
+
         <button onClick={newChat} style={{ 
           width: "100%", 
-          marginBottom: "20px",
+          marginBottom: "10px",
           padding: "10px",
           borderRadius: "8px",
           border: "1px solid #e5e7eb",
@@ -54,6 +117,20 @@ function Sidebar({ chats, currentChatId, setCurrentChatId, newChat, deleteChat }
           fontWeight: "600"
         }}>
           + New Chat
+        </button>
+
+        <button onClick={toggleProfile} style={{ 
+          width: "100%", 
+          marginBottom: "20px",
+          padding: "10px",
+          borderRadius: "8px",
+          border: "1px solid #fb923c",
+          background: "#fff7ed",
+          color: "#ea580c",
+          cursor: "pointer",
+          fontWeight: "600"
+        }}>
+          👤 My Profile
         </button>
 
         <div style={{ flex: 1, overflowY: "auto" }}>
@@ -95,10 +172,13 @@ function Sidebar({ chats, currentChatId, setCurrentChatId, newChat, deleteChat }
               </span>
 
               {activeMenuId === chat.id && (
-                <div className="dropdown-menu" ref={menuRef} onClick={(e) => e.stopPropagation()}>
+                <div className="dropdown-menu" ref={menuRef}>
                   <div 
                     className="dropdown-item delete" 
-                    onClick={() => openDeleteModal(chat.id)}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      openDeleteModal(chat.id);
+                    }}
                   >
                     🗑️ Delete
                   </div>
