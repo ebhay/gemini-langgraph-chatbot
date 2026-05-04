@@ -1,26 +1,49 @@
-from typing import TypedDict, Optional
+from typing import TypedDict
 from langgraph.graph import StateGraph, END
+
 from services.gemini_service import get_response
+from services.tool_service import find_hospitals
 from services.memory_service import get_history, save_conversation
 
-# Define state schema properly using TypedDict
-# This is required in modern LangGraph so it knows which keys to track
+
+# State schema
 class ChatState(TypedDict, total=False):
     input: str
     output: str
 
-# Node function with memory
-def chatbot_node(state: ChatState):
-    user_input = state.get("input", "")
 
-    # Fetch past conversations (short-term memory)
+# Node function with tool + memory
+def chatbot_node(state: ChatState):
+    user_input = state.get("input", "").strip()
+
+    # 🔹 TOOL ROUTING (FIRST PRIORITY)
+    if "hospital" in user_input.lower():
+        try:
+            # Extract location (basic logic)
+            if "in" in user_input.lower():
+                location = user_input.lower().split("in")[-1].strip().title()
+            else:
+                location = "your area"
+
+            hospitals = find_hospitals(location)
+
+            response = f"Here are some hospitals in {location}:\n"
+            for h in hospitals:
+                response += f"- {h}\n"
+
+            return {"output": response}
+
+        except Exception as e:
+            print("[DEBUG] Tool failed:", e)
+            return {"output": "Sorry, I couldn't fetch hospital data."}
+
+    # 🔹 MEMORY + GEMINI FLOW
     try:
         history = get_history()
     except Exception as e:
         print("[DEBUG] get_history() FAILED:", e)
         history = ""
 
-    # Build prompt with memory
     prompt = f"""You are a helpful AI assistant. Remember details the user shares about themselves.
 
 Previous conversation:
@@ -29,10 +52,10 @@ Previous conversation:
 User: {user_input}
 Assistant:"""
 
-    # Get AI response
+    # 🔹 Call Gemini
     response = get_response(prompt)
 
-    # Save current conversation (long-term memory)
+    # 🔹 Save conversation
     try:
         save_conversation(user_input, response)
     except Exception as e:
@@ -47,7 +70,7 @@ graph = StateGraph(ChatState)
 graph.add_node("chatbot", chatbot_node)
 
 graph.set_entry_point("chatbot")
-graph.add_edge("chatbot", END)   # ✅ correct modern API, replaces set_finish_point
+graph.add_edge("chatbot", END)
 
-# Compile graph
+# Compile
 app_graph = graph.compile()
