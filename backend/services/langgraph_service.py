@@ -1,3 +1,4 @@
+import logging
 from typing import TypedDict
 from langgraph.graph import StateGraph, END
 
@@ -6,18 +7,21 @@ from services.tool_service import find_hospitals
 from services.scheduler_service import schedule_task
 from services.memory_service import get_history, save_conversation
 
+logger = logging.getLogger(__name__)
 
-# State schema
+
 class ChatState(TypedDict, total=False):
     input: str
     output: str
 
 
-# Node function with tool + memory + background tasks
 def chatbot_node(state: ChatState):
     user_input = state.get("input", "").strip()
 
-    # 🔹 TOOL ROUTING (FIRST PRIORITY)
+    if not user_input:
+        logger.warning("[NODE] Received empty user input")
+        return {"output": "Please enter a message."}
+
     if "hospital" in user_input.lower():
         try:
             if "in" in user_input.lower():
@@ -31,51 +35,59 @@ def chatbot_node(state: ChatState):
             for h in hospitals:
                 response += f"- {h}\n"
 
+            try:
+                save_conversation(user_input, response)
+            except Exception as e:
+                logger.error(f"[NODE] save_conversation() failed (tool): {e}")
+
             return {"output": response}
 
         except Exception as e:
-            print("[DEBUG] Tool failed:", e)
+            logger.error(f"[TOOL] Hospital lookup failed: {e}")
             return {"output": "Sorry, I couldn't fetch hospital data."}
 
-
-    # 🔹 BACKGROUND TASK TRIGGER (NEW)
     if "remind me" in user_input.lower():
         try:
             schedule_task("Reminder completed!", delay=10)
-            return {"output": "Reminder set! You will be notified soon."}
+
+            response = "Reminder set! You will be notified soon."
+
+            try:
+                save_conversation(user_input, response)
+            except Exception as e:
+                logger.error(f"[NODE] save_conversation() failed (scheduler): {e}")
+
+            return {"output": response}
+
         except Exception as e:
-            print("[DEBUG] Scheduler failed:", e)
+            logger.error(f"[SCHEDULER] Task scheduling failed: {e}")
             return {"output": "Failed to set reminder."}
 
-
-    # 🔹 MEMORY + GEMINI FLOW
     try:
-        history = get_history()
+        history = get_history(limit=5)
     except Exception as e:
-        print("[DEBUG] get_history() FAILED:", e)
+        logger.error(f"[NODE] get_history() failed: {e}")
         history = ""
 
     prompt = f"""You are a helpful AI assistant. Remember details the user shares about themselves.
 
 Previous conversation:
 {history}
-
 User: {user_input}
 Assistant:"""
 
-    # 🔹 Call Gemini
+    logger.debug(f"[NODE] Prompt ready (len={len(prompt)} chars)")
+
     response = get_response(prompt)
 
-    # 🔹 Save conversation
     try:
         save_conversation(user_input, response)
     except Exception as e:
-        print("[DEBUG] save_conversation() FAILED:", e)
+        logger.error(f"[NODE] save_conversation() failed: {e}")
 
     return {"output": response}
 
 
-# Build graph
 graph = StateGraph(ChatState)
 
 graph.add_node("chatbot", chatbot_node)
@@ -83,5 +95,4 @@ graph.add_node("chatbot", chatbot_node)
 graph.set_entry_point("chatbot")
 graph.add_edge("chatbot", END)
 
-# Compile
 app_graph = graph.compile()
