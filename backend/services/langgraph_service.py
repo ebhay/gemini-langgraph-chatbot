@@ -3,6 +3,7 @@ from langgraph.graph import StateGraph, END
 
 from services.gemini_service import get_response
 from services.tool_service import find_hospitals
+from services.scheduler_service import schedule_task
 from services.memory_service import get_history, save_conversation
 
 
@@ -12,14 +13,13 @@ class ChatState(TypedDict, total=False):
     output: str
 
 
-# Node function with tool + memory
+# Node function with tool + memory + background tasks
 def chatbot_node(state: ChatState):
     user_input = state.get("input", "").strip()
 
     # 🔹 TOOL ROUTING (FIRST PRIORITY)
     if "hospital" in user_input.lower():
         try:
-            # Extract location (basic logic)
             if "in" in user_input.lower():
                 location = user_input.lower().split("in")[-1].strip().title()
             else:
@@ -36,6 +36,17 @@ def chatbot_node(state: ChatState):
         except Exception as e:
             print("[DEBUG] Tool failed:", e)
             return {"output": "Sorry, I couldn't fetch hospital data."}
+
+
+    # 🔹 BACKGROUND TASK TRIGGER (NEW)
+    if "remind me" in user_input.lower():
+        try:
+            schedule_task("Reminder completed!", delay=10)
+            return {"output": "Reminder set! You will be notified soon."}
+        except Exception as e:
+            print("[DEBUG] Scheduler failed:", e)
+            return {"output": "Failed to set reminder."}
+
 
     # 🔹 MEMORY + GEMINI FLOW
     try:
