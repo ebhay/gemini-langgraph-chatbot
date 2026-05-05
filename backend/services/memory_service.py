@@ -2,15 +2,16 @@ import logging
 import time
 from database import SessionLocal
 from models import Conversation
+from config import settings
 
 logger = logging.getLogger(__name__)
 
 
-def save_conversation(user_input: str, bot_response: str, session_id: str = "default") -> None:
-    """Persist a user/bot exchange to the database with session context."""
+def save_conversation(user_id: int, user_input: str, bot_response: str, session_id: str = "default") -> None:
     db = SessionLocal()
     try:
         convo = Conversation(
+            user_id=user_id,
             user_input=user_input, 
             bot_response=bot_response,
             session_id=session_id
@@ -19,7 +20,7 @@ def save_conversation(user_input: str, bot_response: str, session_id: str = "def
         start = time.time()
         db.commit()
         logger.info(
-            f"[MEMORY] Saved convo | session={session_id} | input_len={len(user_input)} | db_time={time.time()-start:.3f}s"
+            f"[MEMORY] Saved convo | user_id={user_id} | session={session_id} | input_len={len(user_input)} | db_time={time.time()-start:.3f}s"
         )
     except Exception as e:
         db.rollback()
@@ -29,21 +30,23 @@ def save_conversation(user_input: str, bot_response: str, session_id: str = "def
         db.close()
 
 
-def get_history(session_id: str = "default", limit: int = 5) -> str:
-    """Retrieve the last `limit` exchanges for a specific session."""
+def get_history(user_id: int, session_id: str = "default", limit: int = None) -> str:
+    if limit is None:
+        limit = settings.MAX_HISTORY_LIMIT
+    
     db = SessionLocal()
     try:
         start = time.time()
         convos = (
             db.query(Conversation)
-            .filter(Conversation.session_id == session_id)
+            .filter(Conversation.user_id == user_id, Conversation.session_id == session_id)
             .order_by(Conversation.id.desc())
             .limit(limit)
             .all()
         )
-        logger.info(f"[MEMORY] get_history | session={session_id} | rows={len(convos)} | db_time={time.time()-start:.3f}s")
+        logger.info(f"[MEMORY] get_history | user_id={user_id} | session={session_id} | rows={len(convos)} | db_time={time.time()-start:.3f}s")
     except Exception as e:
-        logger.error(f"[MEMORY] Failed to retrieve history for {session_id}: {e}")
+        logger.error(f"[MEMORY] Failed to retrieve history for user {user_id}, session {session_id}: {e}")
         return ""
     finally:
         db.close()
@@ -54,8 +57,8 @@ def get_history(session_id: str = "default", limit: int = 5) -> str:
 
     return history
 
-def get_all_sessions():
-    """Retrieve unique session IDs, their last message time, and first message for title."""
+
+def get_all_sessions(user_id: int):
     db = SessionLocal()
     try:
         from sqlalchemy import func
@@ -66,6 +69,7 @@ def get_all_sessions():
                 func.max(Conversation.created_at).label("last_active"),
                 func.min(Conversation.id).label("first_id")
             )
+            .filter(Conversation.user_id == user_id)
             .group_by(Conversation.session_id)
             .order_by(func.max(Conversation.created_at).desc())
             .all()
@@ -73,7 +77,6 @@ def get_all_sessions():
 
         result = []
         for s in sessions:
-            # Fetch the first message text for use as the session title
             first_convo = db.query(Conversation).filter(Conversation.id == s.first_id).first()
             result.append({
                 "id": s[0],

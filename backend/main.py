@@ -1,9 +1,11 @@
 import logging
 import time
 from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
+from routes.auth import router as auth_router
 from routes.chat import router as chat_router
 from database import engine, Base
-from fastapi.middleware.cors import CORSMiddleware
+from config import settings
 
 logging.basicConfig(
     level=logging.INFO,
@@ -13,9 +15,14 @@ logging.basicConfig(
 
 Base.metadata.create_all(bind=engine)
 
-app = FastAPI()
+app = FastAPI(
+    title="Gemini LangGraph Chatbot API",
+    description="AI Chatbot with persistent memory, tools, and background tasks",
+    version="1.0.0"
+)
 
 perf_logger = logging.getLogger("perf")
+
 
 @app.middleware("http")
 async def log_request_timing(request: Request, call_next):
@@ -27,17 +34,28 @@ async def log_request_timing(request: Request, call_next):
     )
     return response
 
-app.include_router(chat_router)
-
-
-@app.get("/")
-def home():
-    return {"message": "Server running"}
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=settings.CORS_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+app.include_router(auth_router, prefix="/auth", tags=["Authentication"])
+app.include_router(chat_router, prefix="/api", tags=["Chat"])
+
+
+@app.get("/")
+def home():
+    return {
+        "message": "Gemini LangGraph Chatbot API",
+        "version": "1.0.0",
+        "status": "running"
+    }
+
+
+@app.get("/health")
+def health_check():
+    return {"status": "healthy"}

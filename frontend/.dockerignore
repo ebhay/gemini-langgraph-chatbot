@@ -1,12 +1,10 @@
 node_modules
 .next
-out
-dist
-build
+.git
+.gitignore
 .env
 .env.local
 .env.production
 .DS_Store
 *.log
-.vercel
-.turbo
+README.md
