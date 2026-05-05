@@ -38,10 +38,23 @@ def scheduler_node(state: ChatState):
     user_id = state.get("user_id")
     try:
         reminder_text = "Reminder: Your task is complete!"
-        if "remind me to" in user_input.lower():
-            reminder_text = "Reminder: " + user_input.lower().split("remind me to")[-1].strip()
-        elif "remind me about" in user_input.lower():
-            reminder_text = "Reminder: " + user_input.lower().split("remind me about")[-1].strip()
+        user_lower = user_input.lower()
+        
+        if "remind me to" in user_lower:
+            reminder_text = "Reminder: " + user_lower.split("remind me to")[-1].strip()
+        elif "remind me about" in user_lower:
+            reminder_text = "Reminder: " + user_lower.split("remind me about")[-1].strip()
+        elif "remind me in" in user_lower and " to " in user_lower:
+            parts = user_lower.split(" to ", 1)
+            if len(parts) > 1:
+                reminder_text = "Reminder: " + parts[1].strip()
+        elif "remind" in user_lower:
+            words = user_lower.split()
+            if "remind" in words:
+                idx = words.index("remind")
+                if idx + 2 < len(words) and words[idx + 1] == "me":
+                    reminder_text = "Reminder: " + " ".join(words[idx + 2:])
+        
         schedule_task(user_id, reminder_text, delay=10)
         response = f"I've scheduled that for you. You'll get a notification in 10 seconds: \"{reminder_text}\""
         save_conversation(user_id, user_input, response, session_id=session_id)
