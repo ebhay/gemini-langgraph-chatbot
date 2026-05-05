@@ -18,13 +18,24 @@ export default function Sidebar({ isOpen, onToggle, onProfileClick, onSessionCha
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
 
   const handleNewChat = () => {
-    const newSessionId = `session_${Date.now()}`;
+    // Generate unique session ID with timestamp and random string to prevent collisions
+    const newSessionId = `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    const newSession = {
+      id: newSessionId,
+      last_active: new Date().toISOString(),
+      first_message: null
+    };
+    setSessions([newSession, ...sessions]);
     setCurrentSessionId(newSessionId);
     setMessages([]);
+    
+    // Persist to localStorage
+    localStorage.setItem('currentSessionId', newSessionId);
   };
 
   const handleSessionClick = async (sessionId: string) => {
     setCurrentSessionId(sessionId);
+    localStorage.setItem('currentSessionId', sessionId);
     onSessionChange(sessionId);
   };
 

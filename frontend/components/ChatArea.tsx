@@ -19,7 +19,10 @@ export default function ChatArea({ sidebarOpen, onToggleSidebar }: ChatAreaProps
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    const timer = setTimeout(() => {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }, 100);
+    return () => clearTimeout(timer);
   }, [messages]);
 
   useEffect(() => {
@@ -40,33 +43,79 @@ export default function ChatArea({ sidebarOpen, onToggleSidebar }: ChatAreaProps
     };
 
     addMessage(userMessage);
+    const userInput = input;
     setInput('');
     setIsLoading(true);
 
-    try {
-      const response = await chatAPI.sendMessage({
-        user_input: input,
-        session_id: currentSessionId,
-      });
+    // Exponential backoff for retries
+    const maxRetries = 3;
+    let retryCount = 0;
+    let delay = 1000; // Start with 1 second
 
-      const botMessage = {
-        role: 'bot' as const,
-        text: response.data.response,
-        created_at: new Date().toISOString(),
-      };
+    const attemptSend = async (): Promise<void> => {
+      try {
+        const response = await chatAPI.sendMessage({
+          user_input: userInput,
+          session_id: currentSessionId,
+        });
 
-      addMessage(botMessage);
-    } catch (error) {
-      console.error('Failed to send message:', error);
-      const errorMessage = {
-        role: 'bot' as const,
-        text: 'Sorry, I encountered an error. Please try again.',
-        created_at: new Date().toISOString(),
-      };
-      addMessage(errorMessage);
-    } finally {
-      setIsLoading(false);
-    }
+        const botMessage = {
+          role: 'bot' as const,
+          text: response.data.response,
+          created_at: new Date().toISOString(),
+        };
+
+        addMessage(botMessage);
+      } catch (error: any) {
+        console.error('Failed to send message:', error);
+        
+        // Handle 429 with exponential backoff
+        if (error.response?.status === 429 && retryCount < maxRetries) {
+          retryCount++;
+          const waitTime = delay * Math.pow(2, retryCount - 1);
+          
+          const retryMessage = {
+            role: 'bot' as const,
+            text: `Rate limit reached. Retrying in ${waitTime / 1000} seconds... (Attempt ${retryCount}/${maxRetries})`,
+            created_at: new Date().toISOString(),
+          };
+          addMessage(retryMessage);
+          
+          await new Promise(resolve => setTimeout(resolve, waitTime));
+          return attemptSend();
+        }
+        
+        let errorText = 'Sorry, I encountered an error. Please try again.';
+        
+        if (error.code === 'ECONNABORTED' || error.code === 'ETIMEDOUT') {
+          errorText = 'Request timed out. Please check your connection and try again.';
+        } else if (error.response?.status === 429) {
+          errorText = 'Too many requests. Please wait a moment before trying again.';
+        } else if (error.response?.status >= 500) {
+          errorText = 'Server error. Our team has been notified. Please try again later.';
+        } else if (error.response?.status === 401) {
+          errorText = 'Your session has expired. Please log in again.';
+          setTimeout(() => {
+            localStorage.removeItem('token');
+            localStorage.removeItem('user');
+            window.location.href = '/login';
+          }, 2000);
+        } else if (error.response?.data?.detail) {
+          errorText = error.response.data.detail;
+        }
+        
+        const errorMessage = {
+          role: 'bot' as const,
+          text: errorText,
+          created_at: new Date().toISOString(),
+        };
+        addMessage(errorMessage);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    await attemptSend();
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {

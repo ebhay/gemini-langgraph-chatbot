@@ -51,9 +51,14 @@ def update_user_profile(user_id: int, key: str, value: str):
         if key in standard_fields:
             if key == "age":
                 try:
-                    setattr(profile, key, int(value))
-                except:
-                    setattr(profile, key, None)
+                    age = int(value)
+                    if age < 0 or age > 150:
+                        logger.error(f"[PROFILE] Invalid age value: {value}")
+                        raise ValueError(f"Age must be between 0 and 150")
+                    setattr(profile, key, age)
+                except ValueError as e:
+                    logger.error(f"[PROFILE] Invalid age format: {value}")
+                    raise ValueError(f"Invalid age: {value}")
             else:
                 setattr(profile, key, value)
         else:
@@ -68,9 +73,13 @@ def update_user_profile(user_id: int, key: str, value: str):
         
         db.commit()
         logger.info(f"[PROFILE] Updated {key} for user {user_id}")
+    except ValueError:
+        db.rollback()
+        raise
     except Exception as e:
         db.rollback()
         logger.error(f"[PROFILE] Failed to update profile for user {user_id}: {e}")
+        raise
     finally:
         db.close()
 

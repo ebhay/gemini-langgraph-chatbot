@@ -19,7 +19,17 @@ def get_response(prompt: str) -> str:
     for attempt in range(1, settings.RATE_LIMIT_MAX_RETRIES + 1):
         try:
             logger.debug(f"[GEMINI] Sending prompt (attempt {attempt}, len={len(prompt)} chars)")
+            
+            start_time = time.time()
             response = model.generate_content(prompt)
+            duration = time.time() - start_time
+            
+            # Record metrics
+            try:
+                from services.profiling_service import metrics
+                metrics.record_gemini_call(duration)
+            except:
+                pass
 
             if response.candidates:
                 text = response.candidates[0].content.parts[0].text

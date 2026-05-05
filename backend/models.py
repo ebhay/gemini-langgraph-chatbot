@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, DateTime, Text, ForeignKey, Boolean
+from sqlalchemy import Column, Integer, String, DateTime, Text, ForeignKey, Boolean, Float
 from sqlalchemy.orm import relationship
 from datetime import datetime, timezone
 from database import Base
@@ -22,6 +22,7 @@ class User(Base):
     conversations = relationship("Conversation", back_populates="user", cascade="all, delete-orphan")
     profile = relationship("UserProfile", back_populates="user", uselist=False, cascade="all, delete-orphan")
     notifications = relationship("Notification", back_populates="user", cascade="all, delete-orphan")
+    episodic_memories = relationship("EpisodicMemory", back_populates="user", cascade="all, delete-orphan")
 
     def set_password(self, password: str):
         self.password_hash = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
@@ -38,7 +39,7 @@ class Conversation(Base):
     session_id = Column(String(255), index=True, nullable=False)
     user_input = Column(Text, nullable=False)
     bot_response = Column(Text, nullable=False)
-    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), index=True)
 
     user = relationship("User", back_populates="conversations")
 
@@ -73,3 +74,17 @@ class Notification(Base):
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     user = relationship("User", back_populates="notifications")
+
+
+class EpisodicMemory(Base):
+    __tablename__ = "episodic_memories"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    session_id = Column(String(255), index=True, nullable=False)
+    event_summary = Column(Text, nullable=False)
+    event_type = Column(String(50), default="conversation")
+    importance_score = Column(Float, default=0.5)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), index=True)
+
+    user = relationship("User", back_populates="episodic_memories")

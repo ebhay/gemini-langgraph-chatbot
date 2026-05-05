@@ -8,6 +8,22 @@ logger = logging.getLogger(__name__)
 
 
 def send_email(to_email: str, subject: str, body: str, html_body: str = None) -> bool:
+    # Check if mock mode is enabled
+    if settings.SMTP_MOCK_MODE:
+        logger.info(f"[EMAIL] 📧 MOCK MODE - Email would be sent:")
+        logger.info(f"[EMAIL] To: {to_email}")
+        logger.info(f"[EMAIL] Subject: {subject}")
+        logger.info(f"[EMAIL] Body:\n{body}")
+        return True
+    
+    # Check if SMTP is configured
+    if not settings.SMTP_USER or not settings.SMTP_PASSWORD:
+        logger.info(f"[EMAIL] SMTP not configured. Logging email to console instead.")
+        logger.info(f"[EMAIL] To: {to_email}")
+        logger.info(f"[EMAIL] Subject: {subject}")
+        logger.info(f"[EMAIL] Body:\n{body}")
+        return True  # Return True to not block functionality
+    
     try:
         msg = MIMEMultipart('alternative')
         msg['From'] = f"{settings.SMTP_FROM_NAME} <{settings.SMTP_FROM_EMAIL}>"
@@ -32,6 +48,10 @@ def send_email(to_email: str, subject: str, body: str, html_body: str = None) ->
 
     except Exception as e:
         logger.error(f"[EMAIL] Failed to send to {to_email}: {e}")
+        logger.info(f"[EMAIL] Logging to console instead:")
+        logger.info(f"[EMAIL] To: {to_email}")
+        logger.info(f"[EMAIL] Subject: {subject}")
+        logger.info(f"[EMAIL] Body:\n{body}")
         return False
 
 

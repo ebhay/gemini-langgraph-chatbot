@@ -19,8 +19,17 @@ def save_conversation(user_id: int, user_input: str, bot_response: str, session_
         db.add(convo)
         start = time.time()
         db.commit()
+        duration = time.time() - start
+        
+        # Record metrics
+        try:
+            from services.profiling_service import metrics
+            metrics.record_db_operation(duration)
+        except:
+            pass
+        
         logger.info(
-            f"[MEMORY] Saved convo | user_id={user_id} | session={session_id} | input_len={len(user_input)} | db_time={time.time()-start:.3f}s"
+            f"[MEMORY] Saved convo | user_id={user_id} | session={session_id} | input_len={len(user_input)} | db_time={duration:.3f}s"
         )
     except Exception as e:
         db.rollback()

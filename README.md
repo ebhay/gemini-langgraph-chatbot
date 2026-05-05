@@ -2,7 +2,11 @@
 
 > A conversational AI assistant with persistent memory, session management, and real-time tools — built with Google Gemini, LangGraph, FastAPI, and React.
 
-🌐 **Live Demo:** `https://your-deployment-url.com` ← _replace with your URL_
+🌐 **Live Demo:** See [DEPLOYMENT_GUIDE.md](DEPLOYMENT_GUIDE.md) for deployment instructions
+
+📊 **Performance Report:** See [PROFILING_REPORT.md](PROFILING_REPORT.md) for detailed metrics
+
+🐛 **Known Issues:** See [fix.md](fix.md) for bug fixes and improvements
 
 ---
 
@@ -130,7 +134,7 @@ chatbot-project/
 
 ## Memory Design — Why This Approach?
 
-This project uses a **two-tier memory architecture** stored in SQLite:
+This project uses a **three-tier memory architecture** stored in SQLite:
 
 ### Tier 1 — Short-term (Conversation History)
 Stored in the `conversations` table, scoped by `session_id`. On every request, the last **5 exchanges** are fetched and injected into the Gemini prompt as context. Five turns was chosen deliberately — it's enough to maintain conversational flow without bloating the prompt or hitting token limits.
@@ -138,12 +142,16 @@ Stored in the `conversations` table, scoped by `session_id`. On every request, t
 ### Tier 2 — Long-term (User Profile Facts)
 Stored in the `user_profile` table as key-value pairs. After every Gemini response, the model is instructed to append a machine-readable `[EXTRACT: {"key": "value"}]` block if it detected a new personal fact. The backend parses this block, strips it from the visible response, and upserts the fact into the database.
 
+### Tier 3 — Episodic (Event Memories)
+Stored in the `episodic_memories` table. Captures specific events and conversations with importance scores. These memories can be recalled later to provide context about past interactions, decisions, or significant moments.
+
 **Why this is the best approach for this project:**
 
 - **No vector DB needed.** Facts are atomic key-value pairs (name, age, city), not semantic documents. SQLite lookups are instant, zero-overhead, and require no extra infrastructure.
 - **Fully persistent.** Unlike in-memory stores (Redis, Python dicts), everything survives server restarts.
 - **User-controllable.** The Profile panel lets users view and correct any fact the bot extracted — important for trust.
 - **Gemini does the extraction.** Offloading NER (named entity recognition) to the LLM itself means no separate NLP pipeline is needed. The prompt enforces a strict JSON format for reliable parsing.
+- **Episodic recall.** Important conversations and events are summarized and stored with importance scores, allowing the bot to recall past interactions contextually.
 
 ---
 

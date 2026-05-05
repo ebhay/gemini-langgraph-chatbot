@@ -25,13 +25,17 @@ export default function ChatPage() {
 
     setUser(JSON.parse(userStr));
     loadData();
+  }, []);
+
+  useEffect(() => {
+    if (!user) return;
 
     const notifInterval = setInterval(() => {
       loadNotifications();
     }, 10000);
 
     return () => clearInterval(notifInterval);
-  }, []);
+  }, [user]);
 
   const loadData = async () => {
     try {
@@ -45,9 +49,15 @@ export default function ChatPage() {
       setProfile(profileRes.data);
       setNotifications(notifsRes.data);
 
-      if (sessionsRes.data.length > 0) {
+      // Restore last session from localStorage or use first session
+      const savedSessionId = localStorage.getItem('currentSessionId');
+      if (savedSessionId && sessionsRes.data.some((s: any) => s.id === savedSessionId)) {
+        setCurrentSessionId(savedSessionId);
+        loadSessionHistory(savedSessionId);
+      } else if (sessionsRes.data.length > 0) {
         const firstSession = sessionsRes.data[0].id;
         setCurrentSessionId(firstSession);
+        localStorage.setItem('currentSessionId', firstSession);
         loadSessionHistory(firstSession);
       }
     } catch (error) {

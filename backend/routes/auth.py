@@ -32,6 +32,16 @@ class SignupRequest(BaseModel):
     def validate_password(cls, v: str) -> str:
         if len(v) < 8:
             raise ValueError("Password must be at least 8 characters long")
+        
+        # Check for complexity
+        has_upper = any(c.isupper() for c in v)
+        has_lower = any(c.islower() for c in v)
+        has_digit = any(c.isdigit() for c in v)
+        has_special = any(c in "!@#$%^&*()_+-=[]{}|;:,.<>?" for c in v)
+        
+        if not (has_upper and has_lower and has_digit):
+            raise ValueError("Password must contain at least one uppercase letter, one lowercase letter, and one number")
+        
         return v
 
 

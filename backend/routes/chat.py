@@ -1,5 +1,6 @@
 import logging
-from fastapi import APIRouter, HTTPException, Depends
+import re
+from fastapi import APIRouter, HTTPException, Depends, Query
 from pydantic import BaseModel, field_validator
 from sqlalchemy.orm import Session
 from auth import get_current_user, get_db
@@ -12,6 +13,32 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 
 
+def sanitize_input(text: str) -> str:
+    """Sanitize user input to prevent prompt injection and XSS"""
+    # Remove potential prompt injection attempts
+    dangerous_patterns = [
+        r'\[EXTRACT:',
+        r'\[SYSTEM:',
+        r'\[ADMIN:',
+        r'\[INSTRUCTION:',
+        r'<script',
+        r'javascript:',
+        r'onerror=',
+        r'onclick=',
+    ]
+    
+    for pattern in dangerous_patterns:
+        text = re.sub(pattern, '', text, flags=re.IGNORECASE)
+    
+    # Limit length to prevent abuse
+    text = text[:2000]
+    
+    # Remove excessive whitespace
+    text = ' '.join(text.split())
+    
+    return text.strip()
+
+
 class ChatRequest(BaseModel):
     user_input: str
     session_id: str = "default"
@@ -21,19 +48,46 @@ class ChatRequest(BaseModel):
     def must_not_be_empty(cls, v: str) -> str:
         if not v.strip():
             raise ValueError("user_input cannot be empty or whitespace")
+        if len(v) > 2000:
+            raise ValueError("user_input is too long (max 2000 characters)")
         return v.strip()
+    
+    @field_validator("session_id")
+    @classmethod
+    def validate_session_id(cls, v: str) -> str:
+        if len(v) > 255:
+            raise ValueError("session_id too long")
+        if not re.match(r'^[a-zA-Z0-9_-]+$', v):
+            raise ValueError("session_id contains invalid characters")
+        return v
 
 
 class ProfileUpdate(BaseModel):
     key: str
     value: str
+    
+    @field_validator("key")
+    @classmethod
+    def validate_key(cls, v: str) -> str:
+        # Whitelist allowed profile keys
+        allowed_keys = [
+            "age", "city", "country", "occupation", "interests", 
+            "preferences", "name", "hobby", "favorite_color", 
+            "favorite_food", "language", "timezone"
+        ]
+        if v not in allowed_keys and not v.startswith("custom_"):
+            raise ValueError(f"Invalid profile key. Allowed: {', '.join(allowed_keys)} or custom_*")
+        return v
 
 
 @router.post("/chat")
 async def chat(request: ChatRequest, current_user: User = Depends(get_current_user)):
     try:
+        # Sanitize input
+        sanitized_input = sanitize_input(request.user_input)
+        
         result = app_graph.invoke({
-            "input": request.user_input,
+            "input": sanitized_input,
             "session_id": request.session_id,
             "user_id": current_user.id
         })
@@ -63,8 +117,22 @@ async def update_profile(update: ProfileUpdate, current_user: User = Depends(get
 
 
 @router.get("/sessions")
-async def get_sessions(current_user: User = Depends(get_current_user)):
-    return get_all_sessions(current_user.id)
+async def get_sessions(
+    current_user: User = Depends(get_current_user),
+    limit: int = Query(default=50, le=100),
+    offset: int = Query(default=0, ge=0)
+):
+    """Get user sessions with pagination"""
+    sessions = get_all_sessions(current_user.id)
+    total = len(sessions)
+    paginated = sessions[offset:offset + limit]
+    
+    return {
+        "sessions": paginated,
+        "total": total,
+        "limit": limit,
+        "offset": offset
+    }
 
 
 @router.get("/sessions/{session_id}")
@@ -102,7 +170,7 @@ async def get_notifications(current_user: User = Depends(get_current_user), db: 
         Notification.user_id == current_user.id,
         Notification.is_read == False
     ).all()
-    return [{"id": n.id, "message": n.message, "created_at": n.created_at, "type": n.notification_type} for n in notifs]
+    return [{"id": n.id, "message": n.message, "created_at": str(n.created_at), "type": n.notification_type} for n in notifs]
 
 
 @router.post("/notifications/read/{notif_id}")
